@@ -59,9 +59,9 @@ static size_t bar_total_read_bytes;
  */
 int main(int argc, char** argv) {
 
-  // load_file("/home/solkin/", "127.0.0.1");
+  load_file("/home/solkin/", NULL);
   // send_file("/home/solkin/Downloads/wpapers_ru_dawn.jpg", "127.0.0.1");
-  
+
   return (EXIT_SUCCESS);
 }
 
@@ -89,13 +89,33 @@ int open_socket(const char *ip) {
   struct sockaddr_in addr;
   addr.sin_family = AF_INET;
   addr.sin_port = htons(3214);
-  addr.sin_addr.s_addr = inet_addr("192.168.0.100");
-  // inet_addr("77.108.234.195"); // htonl(INADDR_LOOPBACK);
-  if (connect(sock, (struct sockaddr *) &addr, sizeof (addr)) < 0) {
-    fprintf(stderr, "Unable to connect to socket:\n%s", strerror(errno));
-    return EXIT_FAILURE;
+  if (ip != NULL) {
+    addr.sin_addr.s_addr = inet_addr(ip); // inet_addr("77.108.234.195"); // htonl(INADDR_LOOPBACK);
+    if (connect(sock, (struct sockaddr *) &addr, sizeof (addr)) < 0) {
+      fprintf(stderr, "Unable to connect to socket:\n%s", strerror(errno));
+      return EXIT_FAILURE;
+    }
+    return sock;
+  } else {
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(sock, (struct sockaddr *) &addr, sizeof (addr)) < 0) {
+      fprintf(stderr, "Unable to bind socket:\n%s", strerror(errno));
+      return EXIT_FAILURE;
+    }
+    /** Listening for clients **/
+    struct sockaddr_in cli_addr;
+    int cli_len;
+    /** Waiting for client to connect **/
+    listen(sock, 1);
+    cli_len = sizeof (cli_addr);
+    /** Accepting client connection **/
+    int cli_sock = accept(sock, (struct sockaddr *) &cli_addr, &cli_len);
+    if (cli_sock < 0) {
+      fprintf(stderr, "Unable to connect to client:\n%s", strerror(errno));
+      return EXIT_FAILURE;
+    }
+    return cli_sock;
   }
-  return sock;
 }
 
 int send_file(const char *file_path, const char *ip) {
@@ -149,7 +169,7 @@ int load_file(const char *directory, const char *ip) {
   read(sock, &block_type, 1);
   if (block_type == BLOCK_FILE_START) { // Maybe, range? 
     /** Reading file name **/
-    const char *file_name = (const char*)read_data(sock, '\n', 0);
+    const char *file_name = (const char*) read_data(sock, '\n', 0);
     /** Concatinating into file path **/
     char *file_path = fpath(file_name, directory);
     /** Reading file size **/
