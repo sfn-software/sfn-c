@@ -1,4 +1,4 @@
-sfc
+SFC
 ===
 
-Send Files via C and direct Connection.
+Send Files via C and direct Connection
