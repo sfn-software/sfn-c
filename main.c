@@ -59,8 +59,8 @@ static size_t bar_total_read_bytes;
  */
 int main(int argc, char** argv) {
 
-  load_file("/home/solkin/", NULL);
-  // send_file("/home/solkin/Downloads/wpapers_ru_dawn.jpg", "127.0.0.1");
+  // load_file("/home/solkin/Desktop/", NULL);
+  send_file("/home/solkin/Downloads/jdk-6u37-linux-i586.bin", "127.0.0.1");
 
   return (EXIT_SUCCESS);
 }
@@ -209,8 +209,9 @@ int load_file(const char *directory, const char *ip) {
 
 int transfer_data(int src, int dest, off_t file_seek, off_t file_size) {
   int bytes_read;
+  int bytes_written;
   size_t total_read;
-  void *buffer[buffer_size];
+  void *buffer = malloc(buffer_size);
   /** Seek **/
   lseek(src, file_seek, SEEK_SET);
   int b_size = buffer_size;
@@ -234,9 +235,9 @@ int transfer_data(int src, int dest, off_t file_seek, off_t file_size) {
       fprintf(stderr, "\nUnable to read source:\n%s", strerror(errno));
       return EXIT_FAILURE;
     }
-    void *p = buffer;
+    // void *p = buffer;
     while (bytes_read > 0) {
-      int bytes_written = write(dest, p, bytes_read);
+      bytes_written = write(dest, buffer, bytes_read);
       if (bytes_written <= 0) {
         /** Error while writing data **/
         fprintf(stderr, "\nUnable to write data:\n%s",
@@ -244,9 +245,12 @@ int transfer_data(int src, int dest, off_t file_seek, off_t file_size) {
         return EXIT_FAILURE;
       }
       bytes_read -= bytes_written;
-      p += bytes_written;
+      buffer += bytes_written;
     }
+    buffer -= bytes_written;
   }
+  /** Deallocate buffer **/
+  free(buffer);
   return EXIT_FAILURE;
 }
 
