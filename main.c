@@ -33,7 +33,7 @@ const char *directory = "";
 /** Main methods **/
 int open_file(const char *file_path, int flags);
 int open_socket(const char *ip);
-int send_file(const char *file_path, const char *ip);
+int send_files(unsigned char **file_path, int files_count, const char *ip);
 int load_file(const char *directory, const char *ip);
 int transfer_data(int src, int dest, off_t file_seek, off_t file_size);
 
@@ -155,9 +155,7 @@ int main(int argc, char** argv) {
     /** Checking for files queue **/
     if (files_count > 0) {
       /** Sending all the files **/
-      for (c = 0; c < files_count; c++) {
-        send_file(files[c], host);
-      }
+      send_files(files, files_count, host);
     } else {
       /** Loading files only **/
       load_file(directory, host);
@@ -223,41 +221,48 @@ int open_socket(const char *ip) {
   }
 }
 
-int send_file(const char *file_path, const char *ip) {
+int send_files(unsigned char **files_path, int files_count, const char *ip) {
   char block_type;
-  int file, sock;
-  /** Opening file descriptor */
-  if ((file = open_file(file_path, O_RDONLY)) == EXIT_FAILURE) {
-    return EXIT_FAILURE;
-  }
+  int sock, file, c;
+  int trans_cond = EXIT_SUCCESS;
   /** Opening socket descriptor */
   if ((sock = open_socket(ip)) == EXIT_FAILURE) {
     return EXIT_FAILURE;
   }
-  /** Sending block, file name and file size **/
-  block_type = BLOCK_FILE_START; // Maybe, range? 
-  write(sock, &block_type, 1);
-  const char *file_name = fname(file_path);
-  write(sock, file_name, strlen(file_name));
-  write(sock, &"\n", 1);
-  off_t file_size = fsize(file_path);
-  /** Checking for file size unavailable **/
-  if (file_size == -1) {
-    return EXIT_FAILURE;
+  for (c = 0; c < files_count; c += 1) {
+    /** Opening file descriptor */
+    if ((file = open_file(files_path[c], O_RDONLY)) == EXIT_FAILURE) {
+      return EXIT_FAILURE;
+    }
+    /** Sending block, file name and file size **/
+    block_type = BLOCK_FILE_START; // Maybe, range? 
+    write(sock, &block_type, 1);
+    const char *file_name = fname(files_path[c]);
+    write(sock, file_name, strlen(file_name));
+    write(sock, &"\n", 1);
+    off_t file_size = fsize(files_path[c]);
+    /** Checking for file size unavailable **/
+    if (file_size == -1) {
+      return EXIT_FAILURE;
+    }
+    write(sock, &file_size, 8);
+    setup_bar(file_name, file_size);
+    int trans_cond = transfer_data(file, sock, 0, file_size);
+    /** Closing streams **/
+    close(file);
+    /** Checking for transfer condition **/
+    if (trans_cond == EXIT_FAILURE) {
+      /** Nothing to do **/
+      break;
+    }
+    printf("\n");
   }
-  write(sock, &file_size, 8);
-  setup_bar(file_name, file_size);
-  int trans_cond = transfer_data(file, sock, 0, file_size);
-  /** Checking for transfer condition **/
-  if (trans_cond == EXIT_FAILURE) {
-    /** Nothing to do **/
-  } else {
+  /** Checking for transaction success **/
+  if (trans_cond == EXIT_SUCCESS) {
     /** Sending end-block **/
     block_type = BLOCK_FILE_END;
     write(sock, &block_type, 1);
   }
-  /** Closing streams **/
-  close(file);
   shutdown(sock, SHUT_RDWR);
   return EXIT_SUCCESS;
 }
@@ -351,7 +356,7 @@ int transfer_data(int src, int dest, off_t file_seek, off_t file_size) {
   }
   /** Deallocate buffer **/
   free(buffer);
-  return EXIT_FAILURE;
+  return EXIT_SUCCESS;
 }
 
 void *read_data(int src, char stop_byte, off_t stop_size) {
