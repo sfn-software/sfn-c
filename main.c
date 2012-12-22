@@ -19,12 +19,16 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/ioctl.h>
+#include <ctype.h>
+#include <getopt.h>
 
 #define BLOCK_FILE_START 0x01
 #define BLOCK_FILE_END   0x02
-#define BLOCK_FILE_FAIL  0x02
 
-size_t buffer_size = 0x1000;
+/** Default values **/
+size_t buffer_size = 0x1400;
+int port = 3214;
+const char *directory = "";
 
 /** Main methods **/
 int open_file(const char *file_path, int flags);
@@ -45,6 +49,9 @@ char *fpath(const char *file_name, const char *directory);
 static void setup_bar(const char *file_name, off_t file_size);
 static inline void show_bar(size_t total_read);
 
+/** Additional **/
+static void show_help();
+
 /** Progress static variables **/
 static int bar_percent, bar_c;
 static const char *bar_size_metrics;
@@ -59,10 +66,108 @@ static size_t bar_total_read_bytes;
  */
 int main(int argc, char** argv) {
 
-  // load_file("/home/solkin/Desktop/", NULL);
-  send_file("/home/solkin/Downloads/jdk-6u37-linux-i586.bin", "127.0.0.1");
+  unsigned char **files = (unsigned char **) malloc(sizeof (unsigned char *));
+  int files_count = 0;
+  char *host = NULL;
+  int c;
 
-  return (EXIT_SUCCESS);
+  while (1) {
+    static struct option long_options[] = {
+      {"listen", no_argument, 0, 'l'},
+      {"connect", required_argument, 0, 'c'},
+      {"version", no_argument, 0, 'v'},
+      {"help", no_argument, 0, 'h'},
+      {"port", required_argument, 0, 'p'},
+      {"file", required_argument, 0, 'f'},
+      {"buffer", required_argument, 0, 'b'},
+      {"directory", required_argument, 0, 'd'},
+      {0, 0, 0, 0}
+    };
+    /** getopt_long stores the option index here **/
+    int option_index = 0;
+
+    c = getopt_long(argc, argv, "lc:vhp:f:b:d:",
+            long_options, &option_index);
+
+    /** Detect the end of the options **/
+    if (c == -1)
+      break;
+
+    switch (c) {
+      case 0:
+        /** If this option set a flag, do nothing else now **/
+        if (long_options[option_index].flag != 0)
+          break;
+        printf("option %s", long_options[option_index].name);
+        if (optarg)
+          printf(" with arg %s", optarg);
+        printf("\n");
+        break;
+
+      case 'l':
+        host = NULL;
+        break;
+
+      case 'v':
+        printf("SFC - Send File over direct Connection on C\nVersion 1.0\n");
+        break;
+
+      case 'h':
+        show_help();
+        break;
+
+      case 'c':
+        host = optarg;
+        break;
+
+      case 'p':
+        port = *(int*) optarg;
+        break;
+
+      case 'f':
+        files[files_count] = optarg;
+        files_count += 1;
+        break;
+
+      case 'b':
+        buffer_size = *(size_t*) optarg;
+        break;
+
+      case 'd':
+        directory = optarg;
+        break;
+
+      case '?':
+        /** getopt_long already printed an error message **/
+        break;
+
+      default:
+        show_help();
+    }
+  }
+
+  /** On incorrect case **/
+  if (optind < argc) {
+    printf("You must specify mode.\n");
+    show_help();
+
+  } else {
+    /** Checking for files queue **/
+    if (files_count > 0) {
+      /** Sending all the files **/
+      for (c = 0; c < files_count; c++) {
+        send_file(files[c], host);
+      }
+    } else {
+      /** Loading files only **/
+      load_file(directory, host);
+    }
+  }
+
+  // load_file("/home/solkin/Desktop/", NULL);
+  // send_file("/home/solkin/Downloads/jdk-6u37-linux-i586.bin", "127.0.0.1");
+
+  return EXIT_SUCCESS;
 }
 
 int open_file(const char *file_path, int flags) {
@@ -88,7 +193,7 @@ int open_socket(const char *ip) {
   }
   struct sockaddr_in addr;
   addr.sin_family = AF_INET;
-  addr.sin_port = htons(3214);
+  addr.sin_port = htons(port);
   if (ip != NULL) {
     addr.sin_addr.s_addr = inet_addr(ip); // inet_addr("77.108.234.195"); // htonl(INADDR_LOOPBACK);
     if (connect(sock, (struct sockaddr *) &addr, sizeof (addr)) < 0) {
@@ -145,13 +250,12 @@ int send_file(const char *file_path, const char *ip) {
   int trans_cond = transfer_data(file, sock, 0, file_size);
   /** Checking for transfer condition **/
   if (trans_cond == EXIT_FAILURE) {
-    /** Reporting another client about error **/
-    block_type = BLOCK_FILE_FAIL;
+    /** Nothing to do **/
   } else {
     /** Sending end-block **/
     block_type = BLOCK_FILE_END;
+    write(sock, &block_type, 1);
   }
-  write(sock, &block_type, 1);
   /** Closing streams **/
   close(file);
   shutdown(sock, SHUT_RDWR);
@@ -182,23 +286,20 @@ int load_file(const char *directory, const char *ip) {
     int trans_cond = transfer_data(sock, file, 0, file_size);
     /** Checking for transfer condition **/
     if (trans_cond == EXIT_FAILURE) {
-      /** Reporting another client about error **/
-      block_type = BLOCK_FILE_FAIL;
+      /** Nothing to do now **/
     } else {
       /** Sending end-block **/
       block_type = BLOCK_FILE_END;
+      /** Reading final block type */
+      read(sock, &block_type, 1);
+      if (block_type == BLOCK_FILE_START) {
+        /** Another file */
+      } else if (block_type == BLOCK_FILE_END) {
+        /** All files are received */
+      }
+      block_type = BLOCK_FILE_END;
+      write(sock, &block_type, 1);
     }
-    /** Reading final block type */
-    read(sock, &block_type, 1);
-    if (block_type == BLOCK_FILE_START) {
-      /** Another file */
-    } else if (block_type == BLOCK_FILE_END) {
-      /** All files are received */
-    } else if (block_type == BLOCK_FILE_FAIL) {
-      /** Another client has failed */
-    }
-    block_type = BLOCK_FILE_END;
-    write(sock, &block_type, 1);
     /** Closing streams **/
     close(file);
     shutdown(sock, SHUT_RDWR);
@@ -235,7 +336,6 @@ int transfer_data(int src, int dest, off_t file_seek, off_t file_size) {
       fprintf(stderr, "\nUnable to read source:\n%s", strerror(errno));
       return EXIT_FAILURE;
     }
-    // void *p = buffer;
     while (bytes_read > 0) {
       bytes_written = write(dest, buffer, bytes_read);
       if (bytes_written <= 0) {
@@ -365,4 +465,20 @@ static inline void show_bar(size_t total_read) {
     printf(" %-32s %4d %4s [%s] %3d %\r", bar_file_name, bar_total_read,
             bar_size_metrics, bar_progress, bar_percent);
   }
+}
+
+static void show_help() {
+  printf("Usage:\n");
+  printf("\n");
+  printf("    sfc --listen [options]\n");
+  printf("    sfc --connect <address> [options]\n");
+  printf("\n");
+  printf("Options:\n");
+  printf("\n");
+  printf("    --version,   -v     Show sfn version and exit.\n");
+  printf("    --help,      -h     Show this text and exit.\n");
+  printf("    --port,      -p     Use specified port. Defaults to 3214.\n");
+  printf("    --file,      -f     Send specified files after connection. Use \"-f file1 -f file2\" to send multiple files.\n");
+  printf("    --buffer,    -b     Use specified buffer size in bytes. Defaults to 5120 bytes.\n");
+  printf("    --directory, -d     Use specified directory to store received files. Format is: /home/user/folder/.\n");
 }
