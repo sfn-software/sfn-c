@@ -63,15 +63,12 @@ static size_t bar_total_read;
 static size_t bar_total_read_bytes;
 
 /*
- * 
+ * Main method
  */
 int main(int argc, char** argv) {
-  
   unsigned char **files = (unsigned char **) malloc(sizeof (unsigned char *));
-  int files_count = 0;
+  int c, files_count = 0;
   char *host = NULL;
-  int c;
-
   while (1) {
     static struct option long_options[] = {
       {"listen", no_argument, 0, 'l'},
@@ -86,14 +83,10 @@ int main(int argc, char** argv) {
     };
     /** getopt_long stores the option index here **/
     int option_index = 0;
-
-    c = getopt_long(argc, argv, "lc:vhp:f:b:d:",
-            long_options, &option_index);
-
+    c = getopt_long(argc, argv, "lc:vhp:f:b:d:", long_options, &option_index);
     /** Detect the end of the options **/
     if (c == -1)
       break;
-
     switch (c) {
       case 0:
         /** If this option set a flag, do nothing else now **/
@@ -104,54 +97,43 @@ int main(int argc, char** argv) {
           printf(" with arg %s", optarg);
         printf("\n");
         break;
-
       case 'l':
         host = NULL;
         break;
-
       case 'v':
         printf("SFC - Send File over direct Connection on C\nVersion 1.0\n");
         break;
-
       case 'h':
         show_help();
         break;
-
       case 'c':
         host = optarg;
         break;
-
       case 'p':
         port = *(int*) optarg;
         break;
-
       case 'f':
         files[files_count] = optarg;
         files_count += 1;
         break;
-
       case 'b':
         buffer_size = *(size_t*) optarg;
         break;
-
       case 'd':
         directory = optarg;
         break;
-
       case '?':
         /** getopt_long already printed an error message **/
         break;
-
       default:
         show_help();
+        return EXIT_SUCCESS;
     }
   }
-
   /** On incorrect case **/
   if (optind < argc) {
     printf("You must specify mode.\n");
     show_help();
-
   } else {
     /** Checking for files queue **/
     if (files_count > 0) {
@@ -162,10 +144,6 @@ int main(int argc, char** argv) {
       load_file(directory, host);
     }
   }
-
-  // load_file("/home/solkin/Desktop/", NULL);
-  // send_file("/home/solkin/Downloads/jdk-6u37-linux-i586.bin", "127.0.0.1");
-
   return EXIT_SUCCESS;
 }
 
@@ -194,13 +172,12 @@ int open_socket(const char *ip) {
   addr.sin_family = AF_INET;
   if (ip != NULL) {
     struct addrinfo *addr_info;
-    if(getaddrinfo(ip, NULL, NULL, &addr_info)!=EXIT_SUCCESS){
+    if (getaddrinfo(ip, NULL, NULL, &addr_info) != EXIT_SUCCESS) {
       fprintf(stderr, "Unable to resolve host name: %s\n", strerror(errno));
       return EXIT_FAILURE;
     }
-    addr = *(struct sockaddr_in *)addr_info->ai_addr;
+    addr = *(struct sockaddr_in *) addr_info->ai_addr;
     addr.sin_port = htons(port);
-    //addr.sin_addr = res->ai_addr;//inet_addr(ip);
     if (connect(sock, (struct sockaddr *) &addr, sizeof (addr)) < 0) {
       fprintf(stderr, "Unable to connect to socket: %s\n", strerror(errno));
       return EXIT_FAILURE;
@@ -484,7 +461,10 @@ static void show_help() {
   printf("    --version,   -v     Show sfn version and exit.\n");
   printf("    --help,      -h     Show this text and exit.\n");
   printf("    --port,      -p     Use specified port. Defaults to 3214.\n");
-  printf("    --file,      -f     Send specified files after connection. Use \"-f file1 -f file2\" to send multiple files.\n");
-  printf("    --buffer,    -b     Use specified buffer size in bytes. Defaults to 5120 bytes.\n");
-  printf("    --directory, -d     Use specified directory to store received files. Format is: /home/user/folder/.\n");
+  printf("    --file,      -f     Send specified files after connection. "
+          "Use \"-f file1 -f file2\" to send multiple files.\n");
+  printf("    --buffer,    -b     Use specified buffer size in bytes. "
+          "Defaults to 5120 bytes.\n");
+  printf("    --directory, -d     Use specified directory to store received "
+          "files. Format is: /home/user/folder/.\n");
 }
