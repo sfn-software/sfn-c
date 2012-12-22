@@ -40,6 +40,8 @@ int transfer_data(int src, int dest, off_t file_seek, off_t file_size);
 
 /** Socket utils */
 void *read_data(int src, char stop_byte, off_t stop_size);
+ssize_t write_total(int __fd, const void *__buf, size_t __n);
+ssize_t read_total(int __fd, void *__buf, size_t __nbytes);
 
 /** File utils **/
 off_t fsize(const char *file_path);
@@ -169,7 +171,6 @@ int open_socket(const char *ip) {
     return EXIT_FAILURE;
   }
   struct sockaddr_in addr;
-  addr.sin_family = AF_INET;
   if (ip != NULL) {
     struct addrinfo *addr_info;
     if (getaddrinfo(ip, NULL, NULL, &addr_info) != EXIT_SUCCESS) {
@@ -177,6 +178,7 @@ int open_socket(const char *ip) {
       return EXIT_FAILURE;
     }
     addr = *(struct sockaddr_in *) addr_info->ai_addr;
+    addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     if (connect(sock, (struct sockaddr *) &addr, sizeof (addr)) < 0) {
       fprintf(stderr, "Unable to connect to socket: %s\n", strerror(errno));
@@ -184,6 +186,7 @@ int open_socket(const char *ip) {
     }
     return sock;
   } else {
+    addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     if (bind(sock, (struct sockaddr *) &addr, sizeof (addr)) < 0) {
@@ -221,16 +224,16 @@ int send_files(unsigned char **files_path, int files_count, const char *ip) {
     }
     /** Sending block, file name and file size **/
     block_type = BLOCK_FILE_START;
-    write(sock, &block_type, 1);
+    write_total(sock, &block_type, 1);
     const char *file_name = fname(files_path[c]);
-    write(sock, file_name, strlen(file_name));
-    write(sock, &"\n", 1);
+    write_total(sock, file_name, strlen(file_name));
+    write_total(sock, &"\n", 1);
     off_t file_size = fsize(files_path[c]);
     /** Checking for file size unavailable **/
     if (file_size == -1) {
       return EXIT_FAILURE;
     }
-    write(sock, &file_size, 8);
+    write_total(sock, &file_size, 8);
     setup_bar(file_name, file_size);
     trans_cond = transfer_data(file, sock, 0, file_size);
     /** Closing streams **/
@@ -246,7 +249,7 @@ int send_files(unsigned char **files_path, int files_count, const char *ip) {
   if (trans_cond == EXIT_SUCCESS) {
     /** Sending end-block **/
     block_type = BLOCK_FILE_END;
-    write(sock, &block_type, 1);
+    write_total(sock, &block_type, 1);
   }
   shutdown(sock, SHUT_RDWR);
   return trans_cond;
@@ -261,7 +264,7 @@ int load_file(const char *directory, const char *ip) {
     return EXIT_FAILURE;
   }
   /** Reading block until all files will not be received **/
-  while (read(sock, &block_type, 1) == 1
+  while (read_total(sock, &block_type, 1) == 1
           && block_type == BLOCK_FILE_START) {
     /** Reading file name **/
     const char *file_name = (const char*) read_data(sock, '\n', 0);
@@ -287,15 +290,14 @@ int load_file(const char *directory, const char *ip) {
   /** Checking for transaction success **/
   if (trans_cond == EXIT_SUCCESS) {
     block_type = BLOCK_FILE_END;
-    write(sock, &block_type, 1);
+    write_total(sock, &block_type, 1);
   }
   shutdown(sock, SHUT_RDWR);
   return trans_cond;
 }
 
 int transfer_data(int src, int dest, off_t file_seek, off_t file_size) {
-  int bytes_read;
-  int bytes_written;
+  int bytes_read, bytes_written;
   size_t total_read;
   void *buffer = malloc(buffer_size);
   /** Seek **/
@@ -361,6 +363,21 @@ void *read_data(int src, char stop_byte, off_t stop_size) {
   buffer = '\0';
   memcpy(data + size - 1, &buffer, 1);
   return data;
+}
+
+ssize_t write_total(int __fd, const void *__buf, size_t __n) {
+  int __written = 0;
+  while (__written < __n) {
+    __written += write(__fd, __buf + __written, __n - __written);
+  }
+  return __written;
+}
+
+ssize_t read_total(int __fd, void *__buf, size_t __nbytes) {
+  int __read = 0;
+  while (__read < __nbytes) {
+    __read += read(__fd, __buf + __read, __nbytes - __read);
+  }
 }
 
 off_t fsize(const char *file_path) {
