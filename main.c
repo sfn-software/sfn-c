@@ -325,7 +325,7 @@ int transfer_data(int src, int dest, off_t file_seek, off_t file_size) {
     }
     while (bytes_read > 0) {
       bytes_written = write(dest, buffer, bytes_read);
-      if (bytes_written <= 0) {
+      if (bytes_written < 0) {
         /** Error while writing data **/
         fprintf(stderr, "\nUnable to write data: %s\n",
                 strerror(errno));
