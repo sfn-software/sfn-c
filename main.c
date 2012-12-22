@@ -21,6 +21,7 @@
 #include <sys/ioctl.h>
 #include <ctype.h>
 #include <getopt.h>
+#include <netdb.h>
 
 #define BLOCK_FILE_START 0x01
 #define BLOCK_FILE_END   0x02
@@ -191,15 +192,22 @@ int open_socket(const char *ip) {
   }
   struct sockaddr_in addr;
   addr.sin_family = AF_INET;
-  addr.sin_port = htons(port);
   if (ip != NULL) {
-    addr.sin_addr.s_addr = inet_addr(ip); // inet_addr("77.108.234.195"); // htonl(INADDR_LOOPBACK);
+    struct addrinfo *addr_info;
+    if(getaddrinfo(ip, NULL, NULL, &addr_info)!=EXIT_SUCCESS){
+      fprintf(stderr, "Unable to resolve host name: %s\n", strerror(errno));
+      return EXIT_FAILURE;
+    }
+    addr = *(struct sockaddr_in *)addr_info->ai_addr;
+    addr.sin_port = htons(port);
+    //addr.sin_addr = res->ai_addr;//inet_addr(ip);
     if (connect(sock, (struct sockaddr *) &addr, sizeof (addr)) < 0) {
       fprintf(stderr, "Unable to connect to socket: %s\n", strerror(errno));
       return EXIT_FAILURE;
     }
     return sock;
   } else {
+    addr.sin_port = htons(port);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     if (bind(sock, (struct sockaddr *) &addr, sizeof (addr)) < 0) {
       fprintf(stderr, "Unable to bind socket: %s\n", strerror(errno));
