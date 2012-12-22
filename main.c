@@ -28,7 +28,7 @@
 /** Default values **/
 size_t buffer_size = 0x1400;
 int port = 3214;
-const char *directory = "";
+char *directory = "";
 
 /** Main methods **/
 int open_file(const char *file_path, int flags);
@@ -65,7 +65,7 @@ static size_t bar_total_read_bytes;
  * 
  */
 int main(int argc, char** argv) {
-
+  
   unsigned char **files = (unsigned char **) malloc(sizeof (unsigned char *));
   int files_count = 0;
   char *host = NULL;
@@ -235,7 +235,7 @@ int send_files(unsigned char **files_path, int files_count, const char *ip) {
       return EXIT_FAILURE;
     }
     /** Sending block, file name and file size **/
-    block_type = BLOCK_FILE_START; // Maybe, range? 
+    block_type = BLOCK_FILE_START;
     write(sock, &block_type, 1);
     const char *file_name = fname(files_path[c]);
     write(sock, file_name, strlen(file_name));
@@ -401,7 +401,7 @@ const char *fname(const char *file_path) {
       return strrchr(file_path, '\\') + 1;
     }
   }
-  return NULL;
+  return file_path;
 }
 
 char *fpath(const char *file_name, const char *directory) {
