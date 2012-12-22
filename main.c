@@ -129,7 +129,6 @@ int main(int argc, char** argv) {
         break;
       default:
         show_help();
-        return EXIT_SUCCESS;
     }
   }
   /** On incorrect case **/
@@ -484,4 +483,5 @@ static void show_help() {
           "Defaults to 5120 bytes.\n");
   printf("    --directory, -d     Use specified directory to store received "
           "files. Format is: /home/user/folder/.\n");
+  exit(EXIT_SUCCESS);
 }
