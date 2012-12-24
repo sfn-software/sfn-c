@@ -1,4 +1,4 @@
-SFC
-===
+Siphon
+======
 
-Send Files via C and direct Connection
+Utility to send files via direct connection, written in C
