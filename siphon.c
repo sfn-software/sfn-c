@@ -7,21 +7,21 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <netinet/in.h>
 #include <unistd.h>
-#include <arpa/inet.h>
 #include <string.h>
-#include <sys/sendfile.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <sys/ioctl.h>
 #include <ctype.h>
 #include <getopt.h>
 #include <netdb.h>
+#include <arpa/inet.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/sendfile.h>
+#include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <netinet/in.h>
 
 #define BLOCK_FILE_START 0x01
 #define BLOCK_FILE_END   0x02
@@ -63,6 +63,7 @@ static const char *bar_file_name;
 static off_t bar_file_size;
 static size_t bar_total_read;
 static size_t bar_total_read_bytes;
+static struct winsize tty_size;
 
 /*
  * Main method
@@ -460,8 +461,14 @@ static inline void show_bar(size_t total_read) {
         bar_progress[bar_c] = '-';
       }
     }
+    /** Looking for output size **/
+    ioctl(0, TIOCGWINSZ, &tty_size);
+    if(tty_size.ws_col == 0) {
+      /** Default console width **/
+      tty_size.ws_col = 80;
+    }
     /** Output **/
-    printf(" %-32s %4d %4s [%s] %3d %\r", bar_file_name, bar_total_read,
+    printf(" %*s %4d %4s [%s] %3d %\r", -(tty_size.ws_col - 42), strndup(bar_file_name, tty_size.ws_col - 42), bar_total_read,
             bar_size_metrics, bar_progress, bar_percent);
   }
 }
