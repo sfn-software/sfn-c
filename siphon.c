@@ -1,5 +1,5 @@
 /* 
- * File:   main.c
+ * File:   siphon.c
  * Author: solkin
  *
  * Created on December 19, 2012, 10:53 PM
@@ -103,7 +103,7 @@ int main(int argc, char** argv) {
         host = NULL;
         break;
       case 'v':
-        printf("SFC - Send File over direct Connection on C\nVersion 1.0\n");
+        printf("Siphon - Utility to send files via direct connection, written in C\nTomClaw Software\nVersion 1.0\n");
         break;
       case 'h':
         show_help();
@@ -469,12 +469,12 @@ static inline void show_bar(size_t total_read) {
 static void show_help() {
   printf("Usage:\n");
   printf("\n");
-  printf("    sfc --listen [options]\n");
-  printf("    sfc --connect <address> [options]\n");
+  printf("    siphon --listen [options]\n");
+  printf("    siphon --connect <address> [options]\n");
   printf("\n");
   printf("Options:\n");
   printf("\n");
-  printf("    --version,   -v     Show sfn version and exit.\n");
+  printf("    --version,   -v     Show Siphon version and exit.\n");
   printf("    --help,      -h     Show this text and exit.\n");
   printf("    --port,      -p     Use specified port. Defaults to 3214.\n");
   printf("    --file,      -f     Send specified files after connection. "
