@@ -4,7 +4,6 @@ OBJECTS=$(SOURCES:%.c=%.o)
 
 all: 
 
-	gcc -c $(SOURCES)
 	gcc -o $(TARGET) $(SOURCES)
 
 clean:
