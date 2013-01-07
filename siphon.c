@@ -392,12 +392,12 @@ off_t fsize(const char *file_path) {
 const char *fname(const char *file_path) {
   if (file_path) {
     char *slash_index;
-    /** Unix FS */
+    /** Unix FS **/
     slash_index = strstr(file_path, "/");
     if (slash_index != NULL) {
       return strrchr(file_path, '/') + 1;
     }
-    /** Windows FS */
+    /** Windows FS **/
     slash_index = strstr(file_path, "\\");
     if (slash_index != NULL) {
       return strrchr(file_path, '\\') + 1;
@@ -407,7 +407,7 @@ const char *fname(const char *file_path) {
 }
 
 char *fpath(const char *file_name, const char *directory) {
-  /** Checking for parameters are specified  */
+  /** Checking for parameters are specified **/
   if (file_name && directory) {
     /** Allocating memory **/
     char *file_path = (char*) malloc(strlen(directory) + strlen(file_name) + 1);
@@ -463,7 +463,7 @@ static inline void show_bar(size_t total_read) {
     }
     /** Looking for output size **/
     ioctl(0, TIOCGWINSZ, &tty_size);
-    if(tty_size.ws_col == 0) {
+    if (tty_size.ws_col == 0) {
       /** Default console width **/
       tty_size.ws_col = 80;
     }
