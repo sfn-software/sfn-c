@@ -1,5 +1,6 @@
 *.zip
 
-# NetBeans folders #
-build/
-dist/
+# IDE folders #
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+/cmake-build-*/
