@@ -35,7 +35,7 @@ int open_file(const char *file_path, int flags);
 
 int open_socket(const char *ip);
 
-int send_files(unsigned char **file_path, int files_count, const char *ip);
+int send_files(unsigned char **files_path, int files_count, const char *ip);
 
 int load_file(const char *directory, const char *ip);
 
