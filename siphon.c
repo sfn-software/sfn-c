@@ -22,8 +22,10 @@
 #include <sys/ioctl.h>
 #include <netinet/in.h>
 
-#define BLOCK_FILE_START 0x01
-#define BLOCK_FILE_END   0x02
+#define BLOCK_FILE_START    0x01
+#define BLOCK_DONE          0x02
+#define BLOCK_MD5_WITH_FILE 0x03
+#define BLOCK_FILE_WITH_MD5 0x04
 
 /** Default values **/
 int buffer_size = 0x1400;
@@ -35,9 +37,9 @@ int open_file(const char *file_path, int flags);
 
 int open_socket(const char *ip);
 
-int send_files(unsigned char **files_path, int files_count, const char *ip);
+int send_files(unsigned char **files_path, int files_count, int sock);
 
-int load_file(const char *directory, const char *ip);
+int load_file(const char *directory, int sock);
 
 int transfer_data(int src, int dest, off_t file_seek, off_t file_size);
 
@@ -101,11 +103,9 @@ int main(int argc, char **argv) {
         switch (c) {
             case 0:
                 /** If this option set a flag, do nothing else now **/
-                if (long_options[option_index].flag != 0)
-                    break;
+                if (long_options[option_index].flag != 0) break;
                 printf("option %s", long_options[option_index].name);
-                if (optarg)
-                    printf(" with arg %s", optarg);
+                if (optarg) printf(" with arg %s", optarg);
                 printf("\n");
                 break;
             case 'l':
@@ -145,14 +145,21 @@ int main(int argc, char **argv) {
         printf("You must specify mode.\n");
         show_help();
     } else {
-        /** Checking for files queue **/
-        if (files_count > 0) {
-            /** Sending all the files **/
-            send_files(files, files_count, host);
-        } else {
-            /** Loading files only **/
-            load_file(directory, host);
+        int sock;
+        /** Opening socket descriptor */
+        if ((sock = open_socket(host)) == EXIT_FAILURE) {
+            return EXIT_FAILURE;
         }
+        if (host != NULL) {
+            /** Send and then load files in client mode **/
+            send_files(files, files_count, sock);
+            load_file(directory, sock);
+        } else {
+            /** Load and then send files in host mode **/
+            load_file(directory, sock);
+            send_files(files, files_count, sock);
+        }
+        shutdown(sock, SHUT_RDWR);
     }
     return EXIT_SUCCESS;
 }
@@ -217,14 +224,10 @@ int open_socket(const char *ip) {
     }
 }
 
-int send_files(unsigned char **files_path, int files_count, const char *ip) {
+int send_files(unsigned char **files_path, int files_count, int sock) {
     char block_type;
-    int sock, file, c;
+    int file, c;
     int trans_cond = EXIT_SUCCESS;
-    /** Opening socket descriptor */
-    if ((sock = open_socket(ip)) == EXIT_FAILURE) {
-        return EXIT_FAILURE;
-    }
     for (c = 0; c < files_count; c++) {
         /** Opening file descriptor */
         if ((file = open_file((const char *) files_path[c], O_RDONLY)) == EXIT_FAILURE) {
@@ -256,21 +259,16 @@ int send_files(unsigned char **files_path, int files_count, const char *ip) {
     /** Checking for transaction success **/
     if (trans_cond == EXIT_SUCCESS) {
         /** Sending end-block **/
-        block_type = BLOCK_FILE_END;
+        block_type = BLOCK_DONE;
         write_total(sock, &block_type, 1);
     }
-    shutdown(sock, SHUT_RDWR);
     return trans_cond;
 }
 
-int load_file(const char *directory, const char *ip) {
+int load_file(const char *directory, int sock) {
     char block_type;
-    int sock, file;
+    int file;
     int trans_cond = EXIT_SUCCESS;
-    /** Opening socket descriptor */
-    if ((sock = open_socket(ip)) == EXIT_FAILURE) {
-        return EXIT_FAILURE;
-    }
     /** Reading block until all files will not be received **/
     while (read_total(sock, &block_type, 1) == 1
            && block_type == BLOCK_FILE_START) {
@@ -297,10 +295,9 @@ int load_file(const char *directory, const char *ip) {
     }
     /** Checking for transaction success **/
     if (trans_cond == EXIT_SUCCESS) {
-        block_type = BLOCK_FILE_END;
+        block_type = BLOCK_DONE;
         write_total(sock, &block_type, 1);
     }
-    shutdown(sock, SHUT_RDWR);
     return trans_cond;
 }
 
