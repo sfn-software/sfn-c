@@ -37,7 +37,7 @@ int open_file(const char *file_path, int flags);
 
 int open_socket(const char *ip);
 
-int send_files(unsigned char **files_path, int files_count, int sock);
+int send_files(char **files_path, int files_count, int sock);
 
 int load_file(const char *directory, int sock);
 
@@ -79,7 +79,7 @@ static struct winsize tty_size;
  * Main method
  */
 int main(int argc, char **argv) {
-    unsigned char **files = (unsigned char **) malloc(sizeof(unsigned char *));
+    char **files = malloc(0);
     int c, files_count = 0;
     char *host = NULL;
     while (1) {
@@ -123,10 +123,17 @@ int main(int argc, char **argv) {
             case 'p':
                 port = *(int *) optarg;
                 break;
-            case 'f':
-                files[files_count] = (unsigned char *) optarg;
+            case 'f': {
+                char **updated = malloc((files_count + 1) * sizeof(char *));
+                for (int i = 0; i < files_count; i++) {
+                    updated[i] = files[i];
+                }
+                free(files);
+                files = updated;
+                files[files_count] = optarg;
                 files_count += 1;
                 break;
+            }
             case 'b':
                 buffer_size = *(int *) optarg;
                 break;
@@ -224,7 +231,7 @@ int open_socket(const char *ip) {
     }
 }
 
-int send_files(unsigned char **files_path, int files_count, int sock) {
+int send_files(char **files_path, int files_count, int sock) {
     char block_type;
     int file, c;
     int trans_cond = EXIT_SUCCESS;
