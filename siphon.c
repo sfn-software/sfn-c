@@ -293,11 +293,6 @@ int load_file(const char *directory, int sock) {
         }
         printf("\n");
     }
-    /** Checking for transaction success **/
-    if (trans_cond == EXIT_SUCCESS) {
-        block_type = BLOCK_DONE;
-        write_total(sock, &block_type, 1);
-    }
     return trans_cond;
 }
 
