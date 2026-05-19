@@ -304,45 +304,41 @@ int load_file(const char *directory, int sock) {
 }
 
 int transfer_data(int src, int dest, off_t file_seek, off_t file_size) {
-    ssize_t bytes_read, bytes_written;
-    size_t total_read;
-    void *buffer = malloc(buffer_size);
+    char *buffer = malloc(buffer_size);
     /** Seek **/
     lseek(src, file_seek, SEEK_SET);
-    int b_size = buffer_size;
     /** Reading and sending file **/
-    for (total_read = file_seek; total_read < file_size;) {
+    for (off_t total_read = file_seek; total_read < file_size;) {
+        int b_size = buffer_size;
         if (file_size - total_read < buffer_size) {
             b_size = (int) (file_size - total_read);
-        } else {
-            b_size = buffer_size;
         }
-        bytes_read = read(src, buffer, b_size);
-        total_read += bytes_read;
-        show_bar(total_read);
+        ssize_t bytes_read = read(src, buffer, b_size);
         if (bytes_read == 0) {
             /** No more data **/
             printf("\n");
+            free(buffer);
             return EXIT_SUCCESS;
         }
         if (bytes_read < 0) {
-            /** Error while reading data **/
             fprintf(stderr, "\nUnable to read source: %s\n", strerror(errno));
+            free(buffer);
             return EXIT_FAILURE;
         }
-        while (bytes_read > 0) {
-            bytes_written = write(dest, buffer, bytes_read);
-            if (bytes_written < 0) {
-                /** Error while writing data **/
-                fprintf(stderr, "\nUnable to write data: %s\n",
-                        strerror(errno));
+        total_read += bytes_read;
+        show_bar(total_read);
+        ssize_t written = 0;
+        while (written < bytes_read) {
+            ssize_t n = write(dest, buffer + written, bytes_read - written);
+            if (n < 0) {
+                fprintf(stderr, "\nUnable to write data: %s\n", strerror(errno));
+                free(buffer);
                 return EXIT_FAILURE;
             }
-            bytes_read -= bytes_written;
-            buffer += bytes_written;
+            written += n;
         }
-        buffer -= bytes_written;
     }
+    free(buffer);
     return EXIT_SUCCESS;
 }
 
