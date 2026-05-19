@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Built on 22.04 for an older glibc baseline (wider distro support).
+          - runner: ubuntu-22.04
+            target: linux-x86_64
+          - runner: ubuntu-22.04-arm
+            target: linux-aarch64
+          - runner: macos-latest
+            target: macos-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Sanity check
+        run: ./build/siphon --version
+
+      - name: Strip and package
+        run: |
+          strip build/siphon
+          tar -czvf siphon-${{ github.ref_name }}-${{ matrix.target }}.tar.gz \
+            -C build siphon
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: siphon-${{ matrix.target }}
+          path: siphon-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tar.gz
+          generate_release_notes: true
