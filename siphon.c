@@ -121,7 +121,7 @@ int main(int argc, char **argv) {
                 host = optarg;
                 break;
             case 'p':
-                port = *(int *) optarg;
+                port = atoi(optarg);
                 break;
             case 'f': {
                 char **updated = malloc((files_count + 1) * sizeof(char *));
@@ -135,7 +135,7 @@ int main(int argc, char **argv) {
                 break;
             }
             case 'b':
-                buffer_size = *(int *) optarg;
+                buffer_size = atoi(optarg);
                 break;
             case 'd':
                 directory = optarg;
