@@ -343,28 +343,25 @@ int transfer_data(int src, int dest, off_t file_seek, off_t file_size) {
 }
 
 void *read_data(int src, char stop_byte, off_t stop_size) {
-    int size = 1;
-    void *data = malloc(size);
-    char buffer;
-    /** Reading char by char **/
-    while (read(src, &buffer, 1) > 0) {
-        /** Comparing byte **/
-        if (stop_byte != 0 && buffer == stop_byte) {
+    size_t capacity = 16;
+    size_t length = 0;
+    char *data = malloc(capacity);
+    char byte;
+    while (read(src, &byte, 1) == 1) {
+        if (stop_byte != 0 && byte == stop_byte) {
             break;
         }
-        /** Checking for length **/
-        if (stop_size != 0 && size == stop_size) {
+        /** Keep room for a trailing null terminator **/
+        if (length + 1 >= capacity) {
+            capacity *= 2;
+            data = realloc(data, capacity);
+        }
+        data[length++] = byte;
+        if (stop_size != 0 && length == (size_t) stop_size) {
             break;
         }
-        /** Copying bytes **/
-        memcpy(data + size - 1, &buffer, 1);
-        size += 1;
-        /** Shrinking size **/
-        data = realloc(data, size);
     }
-    /** Stop byte **/
-    buffer = '\0';
-    memcpy(data + size - 1, &buffer, 1);
+    data[length] = '\0';
     return data;
 }
 
