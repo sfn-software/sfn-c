@@ -411,17 +411,16 @@ const char *fname(const char *file_path) {
 }
 
 char *fpath(const char *file_name, const char *directory) {
-    /** Checking for parameters are specified **/
-    if (file_name && directory) {
-        /** Allocating memory **/
-        char *file_path = (char *) malloc(strlen(directory) + strlen(file_name) + 1);
-        /** Concatinating **/
-        strcat(file_path, directory);
-        strcat(file_path, file_name);
-        strcat(file_path, "\0");
-        return file_path;
+    if (!file_name || !directory) {
+        return NULL;
     }
-    return NULL;
+    size_t dir_len = strlen(directory);
+    size_t name_len = strlen(file_name);
+    char *file_path = malloc(dir_len + name_len + 1);
+    memcpy(file_path, directory, dir_len);
+    memcpy(file_path + dir_len, file_name, name_len);
+    file_path[dir_len + name_len] = '\0';
+    return file_path;
 }
 
 static void setup_bar(const char *file_name, off_t file_size) {
