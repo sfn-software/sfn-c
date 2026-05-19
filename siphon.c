@@ -279,23 +279,23 @@ int load_file(const char *directory, int sock) {
     /** Reading block until all files will not be received **/
     while (read_total(sock, &block_type, 1) == 1
            && block_type == BLOCK_FILE_START) {
-        /** Reading file name **/
-        const char *file_name = (const char *) read_data(sock, '\n', 0);
-        /** Concatinating into file path **/
+        char *file_name = read_data(sock, '\n', 0);
         char *file_path = fpath(file_name, directory);
-        /** Reading file size **/
-        off_t file_size = *((unsigned long *) read_data(sock, 0, 8));
+        char *size_buf = read_data(sock, 0, 8);
+        off_t file_size = *((unsigned long *) size_buf);
+        free(size_buf);
         /** Opening file descriptor */
         if ((file = open_file(file_path, O_CREAT | O_WRONLY)) == EXIT_FAILURE) {
+            free(file_name);
+            free(file_path);
             return EXIT_FAILURE;
         }
         setup_bar(file_name, file_size);
         trans_cond = transfer_data(sock, file, 0, file_size);
-        /** Closing streams **/
         close(file);
-        /** Checking for transfer condition **/
+        free(file_name);
+        free(file_path);
         if (trans_cond == EXIT_FAILURE) {
-            /** Nothing to do now **/
             break;
         }
         printf("\n");
