@@ -1,496 +1,166 @@
-/* 
- * File:   siphon.c
- * Author: solkin
- *
- * Created on December 19, 2012, 10:53 PM
- */
-
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <string.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <ctype.h>
-#include <getopt.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <sys/stat.h>
-#include <sys/ioctl.h>
-#include <netinet/in.h>
-
-#define BLOCK_FILE_START    0x01
-#define BLOCK_DONE          0x02
-#define BLOCK_MD5_WITH_FILE 0x03
-#define BLOCK_FILE_WITH_MD5 0x04
-
-/** Default values **/
-int buffer_size = 0x1400;
-int port = 3214;
-char *directory = "";
-
-/** Main methods **/
-int open_file(const char *file_path, int flags);
-
-int open_socket(const char *ip);
-
-int send_files(char **files_path, int files_count, int sock);
-
-int load_file(const char *directory, int sock);
-
-int transfer_data(int src, int dest, off_t file_seek, off_t file_size);
-
-/** Socket utils */
-void *read_data(int src, char stop_byte, off_t stop_size);
-
-ssize_t write_total(int __fd, const void *__buf, size_t __n);
-
-ssize_t read_total(int __fd, void *__buf, size_t __nbytes);
-
-/** File utils **/
-off_t fsize(const char *file_path);
-
-const char *fname(const char *file_path);
-
-char *fpath(const char *file_name, const char *directory);
-
-/** Progress methods **/
-static void setup_bar(const char *file_name, off_t file_size);
-
-static inline void show_bar(size_t total_read);
-
-/** Additional **/
-static void show_help();
-
-/** Progress static variables **/
-static int bar_percent, bar_c;
-static const char *bar_size_metrics;
-static char bar_progress[22];
-static const char *bar_file_name;
-static off_t bar_file_size;
-static size_t bar_total_read;
-static size_t bar_total_read_bytes;
-static struct winsize tty_size;
-
 /*
- * Main method
+ * Siphon — send files over a direct TCP connection.
+ *
+ * Two modes:
+ *   --listen                accept one peer, exchange files, exit
+ *   --connect <host>        connect to a listening peer
+ *
+ * The listening side reads first, then sends. The connecting side sends
+ * first, then reads. Both sides agree on the wire format described in proto.h.
  */
+
+#include <getopt.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include "fs.h"
+#include "net.h"
+#include "proto.h"
+
+#define DEFAULT_PORT        3214
+#define DEFAULT_BUFFER_SIZE 0x1400
+
+static void show_help(void) {
+    printf("Usage:\n\n");
+    printf("    siphon --listen [options]\n");
+    printf("    siphon --connect <address> [options]\n\n");
+    printf("Options:\n\n");
+    printf("    --version,   -v     Show Siphon version and exit.\n");
+    printf("    --help,      -h     Show this text and exit.\n");
+    printf("    --port,      -p     Use specified port. Defaults to %d.\n", DEFAULT_PORT);
+    printf("    --file,      -f     Send a file or recursively send a directory's contents.\n"
+           "                        Use \"-f file1 -f dir1\" to send multiple items.\n");
+    printf("    --buffer,    -b     Use specified buffer size in bytes.\n"
+           "                        Defaults to %d bytes.\n", DEFAULT_BUFFER_SIZE);
+    printf("    --directory, -d     Use specified directory to store received files.\n"
+           "                        Format is: /home/user/folder/.\n");
+    printf("    --legacy,    -L     Send using the old protocol (no MD5, no path).\n"
+           "                        Use this when talking to pre-v2 siphon peers.\n\n");
+}
+
+static void show_version(void) {
+    printf("Siphon - Utility to send files via direct connection, written in C\n");
+    printf("TomClaw Software\n");
+    printf("Version 2.0\n");
+}
+
+/* Add a single -f argument to the file list, picking the right strategy
+ * based on whether the path points to a regular file or a directory. */
+static int add_file_arg(file_list *files, const char *arg) {
+    if (is_directory(arg)) {
+        return scan_dir(arg, files);
+    }
+    /* Regular file: base_dir is its parent so the recipient gets it flat. */
+    char *parent = path_dirname(arg);
+    if (parent == NULL) return -1;
+    int rc = file_list_add(files, arg, parent);
+    free(parent);
+    return rc;
+}
+
 int main(int argc, char **argv) {
-    char **files = malloc(0);
-    int c, files_count = 0;
+    file_list files;
+    file_list_init(&files);
+
     char *host = NULL;
+    const char *directory = "";
+    int port = DEFAULT_PORT;
+    int buffer_size = DEFAULT_BUFFER_SIZE;
+    int use_legacy = 0;
+    int mode_set = 0;  /* 1 once -l or -c is seen */
+
+    static struct option long_options[] = {
+        {"listen",    no_argument,       0, 'l'},
+        {"connect",   required_argument, 0, 'c'},
+        {"version",   no_argument,       0, 'v'},
+        {"help",      no_argument,       0, 'h'},
+        {"port",      required_argument, 0, 'p'},
+        {"file",      required_argument, 0, 'f'},
+        {"buffer",    required_argument, 0, 'b'},
+        {"directory", required_argument, 0, 'd'},
+        {"legacy",    no_argument,       0, 'L'},
+        {0, 0, 0, 0}
+    };
+
     while (1) {
-        static struct option long_options[] = {
-                {"listen",    no_argument,       0, 'l'},
-                {"connect",   required_argument, 0, 'c'},
-                {"version",   no_argument,       0, 'v'},
-                {"help",      no_argument,       0, 'h'},
-                {"port",      required_argument, 0, 'p'},
-                {"file",      required_argument, 0, 'f'},
-                {"buffer",    required_argument, 0, 'b'},
-                {"directory", required_argument, 0, 'd'},
-                {0, 0,                           0, 0}
-        };
-        /** getopt_long stores the option index here **/
         int option_index = 0;
-        c = getopt_long(argc, argv, "lc:vhp:f:b:d:", long_options, &option_index);
-        /** Detect the end of the options **/
-        if (c == -1)
-            break;
+        int c = getopt_long(argc, argv, "lc:vhp:f:b:d:L", long_options, &option_index);
+        if (c == -1) break;
+
         switch (c) {
-            case 0:
-                /** If this option set a flag, do nothing else now **/
-                if (long_options[option_index].flag != 0) break;
-                printf("option %s", long_options[option_index].name);
-                if (optarg) printf(" with arg %s", optarg);
-                printf("\n");
-                break;
             case 'l':
                 host = NULL;
-                break;
-            case 'v':
-                printf("Siphon - Utility to send files via direct connection, written in C\nTomClaw Software\nVersion 1.0\n");
-                break;
-            case 'h':
-                show_help();
+                mode_set = 1;
                 break;
             case 'c':
                 host = optarg;
+                mode_set = 1;
                 break;
+            case 'v':
+                show_version();
+                file_list_free(&files);
+                return EXIT_SUCCESS;
+            case 'h':
+                show_help();
+                file_list_free(&files);
+                return EXIT_SUCCESS;
             case 'p':
                 port = atoi(optarg);
                 break;
-            case 'f': {
-                char **updated = malloc((files_count + 1) * sizeof(char *));
-                for (int i = 0; i < files_count; i++) {
-                    updated[i] = files[i];
+            case 'f':
+                if (add_file_arg(&files, optarg) != 0) {
+                    fprintf(stderr, "Unable to add %s\n", optarg);
+                    file_list_free(&files);
+                    return EXIT_FAILURE;
                 }
-                free(files);
-                files = updated;
-                files[files_count] = optarg;
-                files_count += 1;
                 break;
-            }
             case 'b':
                 buffer_size = atoi(optarg);
                 break;
             case 'd':
                 directory = optarg;
                 break;
-            case '?':
-                /** getopt_long already printed an error message **/
+            case 'L':
+                use_legacy = 1;
                 break;
+            case '?':
+                /* getopt_long has already printed an error message. */
+                file_list_free(&files);
+                return EXIT_FAILURE;
             default:
                 show_help();
-        }
-    }
-    /** On incorrect case **/
-    if (optind < argc) {
-        printf("You must specify mode.\n");
-        show_help();
-    } else {
-        int sock;
-        /** Opening socket descriptor */
-        if ((sock = open_socket(host)) == EXIT_FAILURE) {
-            return EXIT_FAILURE;
-        }
-        if (host != NULL) {
-            /** Send and then load files in client mode **/
-            send_files(files, files_count, sock);
-            load_file(directory, sock);
-        } else {
-            /** Load and then send files in host mode **/
-            load_file(directory, sock);
-            send_files(files, files_count, sock);
-        }
-        shutdown(sock, SHUT_RDWR);
-    }
-    return EXIT_SUCCESS;
-}
-
-int open_file(const char *file_path, int flags) {
-    /** Opening file **/
-    int mode = 0644;
-    if ((flags & O_CREAT) > 0) {
-        mode = 0777;
-    }
-    int a_file = open(file_path, flags, mode);
-    if (a_file == -1) {
-        fprintf(stderr, "Unable to open file %s: %s\n", file_path,
-                strerror(errno));
-        return EXIT_FAILURE;
-    }
-    return a_file;
-}
-
-int open_socket(const char *ip) {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        fprintf(stderr, "Unable to open socket: %s\n", strerror(errno));
-        return EXIT_FAILURE;
-    }
-    struct sockaddr_in addr;
-    if (ip != NULL) {
-        struct addrinfo *addr_info;
-        if (getaddrinfo(ip, NULL, NULL, &addr_info) != EXIT_SUCCESS) {
-            fprintf(stderr, "Unable to resolve host name: %s\n", strerror(errno));
-            return EXIT_FAILURE;
-        }
-        addr = *(struct sockaddr_in *) addr_info->ai_addr;
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        if (connect(sock, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
-            fprintf(stderr, "Unable to connect to socket: %s\n", strerror(errno));
-            return EXIT_FAILURE;
-        }
-        return sock;
-    } else {
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        addr.sin_addr.s_addr = htonl(INADDR_ANY);
-        if (bind(sock, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
-            fprintf(stderr, "Unable to bind socket: %s\n", strerror(errno));
-            return EXIT_FAILURE;
-        }
-        /** Listening for clients **/
-        struct sockaddr_in cli_addr;
-        socklen_t cli_len;
-        /** Waiting for client to connect **/
-        listen(sock, 1);
-        cli_len = sizeof(cli_addr);
-        /** Accepting client connection **/
-        int cli_sock = accept(sock, (struct sockaddr *) &cli_addr, &cli_len);
-        if (cli_sock < 0) {
-            fprintf(stderr, "Unable to connect to client: %s\n", strerror(errno));
-            return EXIT_FAILURE;
-        }
-        return cli_sock;
-    }
-}
-
-int send_files(char **files_path, int files_count, int sock) {
-    char block_type;
-    int file, c;
-    int trans_cond = EXIT_SUCCESS;
-    for (c = 0; c < files_count; c++) {
-        /** Opening file descriptor */
-        if ((file = open_file((const char *) files_path[c], O_RDONLY)) == EXIT_FAILURE) {
-            return EXIT_FAILURE;
-        }
-        /** Sending block, file name and file size **/
-        block_type = BLOCK_FILE_START;
-        write_total(sock, &block_type, 1);
-        const char *file_name = fname((const char *) files_path[c]);
-        write_total(sock, file_name, strlen(file_name));
-        write_total(sock, &"\n", 1);
-        off_t file_size = fsize((const char *) files_path[c]);
-        /** Checking for file size unavailable **/
-        if (file_size == -1) {
-            return EXIT_FAILURE;
-        }
-        write_total(sock, &file_size, 8);
-        setup_bar(file_name, file_size);
-        trans_cond = transfer_data(file, sock, 0, file_size);
-        /** Closing streams **/
-        close(file);
-        /** Checking for transfer condition **/
-        if (trans_cond == EXIT_FAILURE) {
-            /** Nothing to do **/
-            break;
-        }
-        printf("\n");
-    }
-    /** Checking for transaction success **/
-    if (trans_cond == EXIT_SUCCESS) {
-        /** Sending end-block **/
-        block_type = BLOCK_DONE;
-        write_total(sock, &block_type, 1);
-    }
-    return trans_cond;
-}
-
-int load_file(const char *directory, int sock) {
-    char block_type;
-    int file;
-    int trans_cond = EXIT_SUCCESS;
-    /** Reading block until all files will not be received **/
-    while (read_total(sock, &block_type, 1) == 1
-           && block_type == BLOCK_FILE_START) {
-        char *file_name = read_data(sock, '\n', 0);
-        char *file_path = fpath(file_name, directory);
-        char *size_buf = read_data(sock, 0, 8);
-        off_t file_size = *((unsigned long *) size_buf);
-        free(size_buf);
-        /** Opening file descriptor */
-        if ((file = open_file(file_path, O_CREAT | O_WRONLY)) == EXIT_FAILURE) {
-            free(file_name);
-            free(file_path);
-            return EXIT_FAILURE;
-        }
-        setup_bar(file_name, file_size);
-        trans_cond = transfer_data(sock, file, 0, file_size);
-        close(file);
-        free(file_name);
-        free(file_path);
-        if (trans_cond == EXIT_FAILURE) {
-            break;
-        }
-        printf("\n");
-    }
-    return trans_cond;
-}
-
-int transfer_data(int src, int dest, off_t file_seek, off_t file_size) {
-    char *buffer = malloc(buffer_size);
-    /** Seek **/
-    lseek(src, file_seek, SEEK_SET);
-    /** Reading and sending file **/
-    for (off_t total_read = file_seek; total_read < file_size;) {
-        int b_size = buffer_size;
-        if (file_size - total_read < buffer_size) {
-            b_size = (int) (file_size - total_read);
-        }
-        ssize_t bytes_read = read(src, buffer, b_size);
-        if (bytes_read == 0) {
-            /** No more data **/
-            printf("\n");
-            free(buffer);
-            return EXIT_SUCCESS;
-        }
-        if (bytes_read < 0) {
-            fprintf(stderr, "\nUnable to read source: %s\n", strerror(errno));
-            free(buffer);
-            return EXIT_FAILURE;
-        }
-        total_read += bytes_read;
-        show_bar(total_read);
-        ssize_t written = 0;
-        while (written < bytes_read) {
-            ssize_t n = write(dest, buffer + written, bytes_read - written);
-            if (n < 0) {
-                fprintf(stderr, "\nUnable to write data: %s\n", strerror(errno));
-                free(buffer);
+                file_list_free(&files);
                 return EXIT_FAILURE;
-            }
-            written += n;
         }
     }
-    free(buffer);
-    return EXIT_SUCCESS;
-}
 
-void *read_data(int src, char stop_byte, off_t stop_size) {
-    size_t capacity = 16;
-    size_t length = 0;
-    char *data = malloc(capacity);
-    char byte;
-    while (read(src, &byte, 1) == 1) {
-        if (stop_byte != 0 && byte == stop_byte) {
-            break;
-        }
-        /** Keep room for a trailing null terminator **/
-        if (length + 1 >= capacity) {
-            capacity *= 2;
-            data = realloc(data, capacity);
-        }
-        data[length++] = byte;
-        if (stop_size != 0 && length == (size_t) stop_size) {
-            break;
-        }
+    if (!mode_set || optind < argc) {
+        fprintf(stderr, "You must specify --listen or --connect.\n\n");
+        show_help();
+        file_list_free(&files);
+        return EXIT_FAILURE;
     }
-    data[length] = '\0';
-    return data;
-}
 
-ssize_t write_total(int __fd, const void *__buf, size_t __n) {
-    int __written = 0;
-    while (__written < __n) {
-        __written += write(__fd, __buf + __written, __n - __written);
+    int sock = open_socket(host, port);
+    if (sock < 0) {
+        file_list_free(&files);
+        return EXIT_FAILURE;
     }
-    return __written;
-}
 
-ssize_t read_total(int __fd, void *__buf, size_t __nbytes) {
-    int __read = 0;
-    while (__read < __nbytes) {
-        __read += read(__fd, __buf + __read, __nbytes - __read);
+    /* Listener reads first, then sends. Client does the opposite. */
+    int rc;
+    if (host != NULL) {
+        rc = send_files(sock, &files, buffer_size, use_legacy);
+        if (rc == 0) rc = receive_files(sock, directory, buffer_size);
+    } else {
+        rc = receive_files(sock, directory, buffer_size);
+        if (rc == 0) rc = send_files(sock, &files, buffer_size, use_legacy);
     }
-    return __read;
-}
 
-off_t fsize(const char *file_path) {
-    struct stat stat_struct;
-    /** Obtain file info **/
-    if (stat(file_path, &stat_struct) == 0) {
-        return stat_struct.st_size;
-    }
-    return -1;
+    shutdown(sock, SHUT_RDWR);
+    close(sock);
+    file_list_free(&files);
+    return rc == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
-
-const char *fname(const char *file_path) {
-    if (file_path) {
-        char *slash_index;
-        /** Unix FS **/
-        slash_index = strstr(file_path, "/");
-        if (slash_index != NULL) {
-            return strrchr(file_path, '/') + 1;
-        }
-        /** Windows FS **/
-        slash_index = strstr(file_path, "\\");
-        if (slash_index != NULL) {
-            return strrchr(file_path, '\\') + 1;
-        }
-    }
-    return file_path;
-}
-
-char *fpath(const char *file_name, const char *directory) {
-    if (!file_name || !directory) {
-        return NULL;
-    }
-    size_t dir_len = strlen(directory);
-    size_t name_len = strlen(file_name);
-    char *file_path = malloc(dir_len + name_len + 1);
-    memcpy(file_path, directory, dir_len);
-    memcpy(file_path + dir_len, file_name, name_len);
-    file_path[dir_len + name_len] = '\0';
-    return file_path;
-}
-
-static void setup_bar(const char *file_name, off_t file_size) {
-    bar_file_name = file_name;
-    bar_file_size = file_size;
-}
-
-static inline void show_bar(size_t total_read) {
-    bar_total_read_bytes = total_read;
-    /** Calculating metrics **/
-    if (total_read < 1024) {
-        bar_size_metrics = "Byte";
-    }
-    if (total_read >= 1024) {
-        total_read /= 1024;
-        bar_size_metrics = "KiB ";
-    }
-    if (total_read >= 1024) {
-        total_read /= 1024;
-        bar_size_metrics = "MiB ";
-    }
-    if (total_read >= 1024) {
-        total_read /= 1024;
-        bar_size_metrics = "GiB ";
-    }
-    if (total_read >= 1024) {
-        total_read /= 1024;
-        bar_size_metrics = "TiB ";
-    }
-    /** Checking for something changed **/
-    if (bar_total_read != total_read
-        || ((bar_total_read_bytes * 100) / bar_file_size) != bar_percent) {
-        /** Updating values **/
-        bar_total_read = total_read;
-        bar_percent = (int) ((bar_total_read_bytes * 100) / bar_file_size);
-        /** Padding **/
-        for (bar_c = 0; bar_c < 22; bar_c += 1) {
-            if (bar_c * 100 / 22 <= bar_percent) {
-                bar_progress[bar_c] = '#';
-            } else {
-                bar_progress[bar_c] = '-';
-            }
-        }
-        /** Looking for output size **/
-        ioctl(0, TIOCGWINSZ, &tty_size);
-        if (tty_size.ws_col == 0) {
-            /** Default console width **/
-            tty_size.ws_col = 80;
-        }
-        /** Output **/
-        printf(" %*s %4d %4s [%s] %3d %%\r", -(tty_size.ws_col - 42), strndup(bar_file_name, tty_size.ws_col - 42),
-               (int) bar_total_read,
-               bar_size_metrics, bar_progress, bar_percent);
-    }
-}
-
-static void show_help() {
-    printf("Usage:\n");
-    printf("\n");
-    printf("    siphon --listen [options]\n");
-    printf("    siphon --connect <address> [options]\n");
-    printf("\n");
-    printf("Options:\n");
-    printf("\n");
-    printf("    --version,   -v     Show Siphon version and exit.\n");
-    printf("    --help,      -h     Show this text and exit.\n");
-    printf("    --port,      -p     Use specified port. Defaults to 3214.\n");
-    printf("    --file,      -f     Send specified files after connection.\n"
-           "                        Use \"-f file1 -f file2\" to send multiple files.\n");
-    printf("    --buffer,    -b     Use specified buffer size in bytes.\n"
-           "                        Defaults to 5120 bytes.\n");
-    printf("    --directory, -d     Use specified directory to store received files.\n"
-           "                        Format is: /home/user/folder/.\n\n");
-    exit(EXIT_SUCCESS);
-}
-
